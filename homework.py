@@ -116,6 +116,22 @@ def check_tokens() -> bool:
     return True
 
 
+class GetAPIAnswerError(Exception):
+    pass
+
+
+class CacheTokenError(Exception):
+    pass
+
+
+class ParseStatusError(Exception):
+    pass
+
+
+class CheckResponseError(Exception):
+    pass
+
+
 def main() -> None:
     """Запуск бота."""
     """Основная логика работы бота."""
