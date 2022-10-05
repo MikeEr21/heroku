@@ -27,12 +27,12 @@ HOMEWORK_STATUSES = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-logging.basicConfig(
-        format='%(asctime)s - [%(levelname)s] - %(message)s',
-        level=logging.INFO,
-        filename='main.log',
-        filemode='w'
-    )
+# logging.basicConfig(
+#         format='%(asctime)s - [%(levelname)s] - %(message)s',
+#         level=logging.INFO,
+#         filename='main.log',
+#         filemode='w'
+#     )
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
