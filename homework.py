@@ -37,6 +37,7 @@ logging.basicConfig(
 
 def send_message(bot: Bot, message: str) -> None:
     """Отправляем сообщение в Telegram чат."""
+    logging.info('Отправляем сообщение в Telegram чат.')
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
     except Exception as error:
@@ -47,6 +48,7 @@ def send_message(bot: Bot, message: str) -> None:
 
 def get_api_answer(current_timestamp: int) -> dict:
     """Делаем запрос к эндпоинту API-сервиса."""
+    logging.info('Делаем запрос к эндпоинту API-сервиса.')
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
     try:
@@ -67,6 +69,7 @@ def get_api_answer(current_timestamp: int) -> dict:
 
 def check_response(response: dict) -> dict:
     """Проверка ответа API на корректность."""
+    logging.info('Проверяем ответ API на корректность.')
     try:
         homeworks = response['homeworks']
         homework = homeworks[0]
@@ -80,14 +83,17 @@ def check_response(response: dict) -> dict:
             raise CheckResponseError
     except AttributeError as error:
         logging.error(f'Тип ответа от API: {error}')
+        raise CheckResponseError
     except IndexError as error:
         logging.error(f'Нет работы на проверке: {error}')
+        raise CheckResponseError
     else:
         return homework
 
 
 def parse_status(homework: dict) -> str:
     """Извлекаем информацию о статусе домашней работы."""
+    logging.info('Извлекаем информацию о статусе домашней работы.')
     if 'homework_name' not in homework:
         logging.error('В списке нет домашних заданий')
         raise KeyError()
@@ -108,6 +114,7 @@ def parse_status(homework: dict) -> str:
 
 def check_tokens() -> bool:
     """Проверяем наличие переменных окружения."""
+    logging.info('Проверяем наличие переменных окружения.')
     if not (PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID):
         logging.critical(f'У объекта/-ов нет переменной окружения.')
         return False
