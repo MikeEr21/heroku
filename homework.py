@@ -1,14 +1,15 @@
 import logging
 import os
 import sys
+import time
+from http import HTTPStatus
 
 import requests
+import telegram
+from dotenv import load_dotenv
 from telegram import Bot
 
-from http import HTTPStatus
-import time
-
-from dotenv import load_dotenv
+from exceptions import CheckResponseError, GetAPIAnswerError, ParseStatusError
 
 load_dotenv()
 
@@ -27,44 +28,42 @@ HOMEWORK_STATUSES = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-# logging.basicConfig(
-#         format='%(asctime)s - [%(levelname)s] - %(message)s',
-#         level=logging.INFO,
-#         filename='main.log',
-#         filemode='w'
-#     )
+logging.basicConfig(
+    format='%(asctime)s - [%(levelname)s] - %(message)s',
+    level=logging.INFO,
+    filename='main.log',
+    filemode='w'
+)
+
 logger = logging.getLogger(__name__)
+logger.addHandler(logging.StreamHandler(sys.stderr))
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 def send_message(bot: Bot, message: str) -> None:
     """Отправляем сообщение в Telegram чат."""
-    logging.info('Отправляем сообщение в Telegram чат.')
     try:
+        logging.info(f'Сообщение "{message}" готовится к отправке.')
         bot.send_message(TELEGRAM_CHAT_ID, message)
-    except Exception as error:
+    except telegram.TelegramError:
         logging.error(
-            f'Невозможно отправить сообщение. {error}'
+            f'Невозможно отправить сообщение.'
         )
+    else:
+        logging.info(f'Сообщение успешно отправлено.')
 
 
 def get_api_answer(current_timestamp: int) -> dict:
     """Делаем запрос к эндпоинту API-сервиса."""
-    logging.info('Делаем запрос к эндпоинту API-сервиса.')
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
-    try:
-        homework_statuses = requests.get(
-            ENDPOINT,
-            headers=HEADERS,
-            params=params
-        )
-    except Exception:
-        raise GetAPIAnswerError()
+    logging.info('Делаем запрос к эндпоинту API-сервиса.')
+    homework_statuses = requests.get(
+        ENDPOINT,
+        headers=HEADERS,
+        params=params
+    )
     if homework_statuses.status_code != HTTPStatus.OK:
-        logging.error(
-            'Ошибка при запросе к эндпоинту API', exc_info=True
-        )
         raise GetAPIAnswerError()
     return homework_statuses.json()
 
@@ -72,25 +71,17 @@ def get_api_answer(current_timestamp: int) -> dict:
 def check_response(response: dict) -> dict:
     """Проверка ответа API на корректность."""
     logging.info('Проверяем ответ API на корректность.')
-    try:
-        homeworks = response['homeworks']
-        homework = homeworks[0]
-        if response != HTTPStatus.OK:
-            logging.error('API не отвечает')
-        if type(homework) != dict:
-            logging.error('Ответ от API имеет некорректный тип')
-            raise CheckResponseError
-        if homework == '':
-            logging.error('В списке нет домашних заданий')
-            raise CheckResponseError
-    except AttributeError as error:
-        logging.error(f'Тип ответа от API: {error}')
+    homeworks = response['homeworks']
+    homework = homeworks[0]
+    if response != HTTPStatus.OK:
+        logging.error('API не отвечает')
+    if type(homework) != dict:
+        logging.error('Ответ от API имеет некорректный тип')
         raise CheckResponseError
-    except IndexError as error:
-        logging.error(f'Нет работы на проверке: {error}')
+    if homework == '':
+        logging.error('В списке нет домашних заданий')
         raise CheckResponseError
-    else:
-        return homework
+    return homework
 
 
 def parse_status(homework: dict) -> str:
@@ -110,33 +101,56 @@ def parse_status(homework: dict) -> str:
     if verdict is None:
         logging.error('Пустой verdict')
         raise ParseStatusError
-    return f'Изменился статус проверки работы ' \
-           f'"{homework_name}". {verdict}'
+    return (
+        f'Изменился статус проверки работы '
+        f'"{homework_name}". {verdict}'
+    )
 
 
 def check_tokens() -> bool:
     """Проверяем наличие переменных окружения."""
     logging.info('Проверяем наличие переменных окружения.')
-    if not (PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID):
-        logging.critical(f'У объекта/-ов нет переменной окружения.')
-        return False
+    values = (
+        ('PRACTICUM_TOKEN', PRACTICUM_TOKEN),
+        ('TELEGRAM_TOKEN', TELEGRAM_TOKEN),
+        ('TELEGRAM_CHAT_ID', TELEGRAM_CHAT_ID)
+    )
+    empty_variables = []
+    for variable_name, variable_value in values:
+        if variable_value is None:
+            empty_variables.append(variable_name)
+            logging.critical(f'У объекта/-ов "{empty_variables[0]}" нет переменной окружения.')
+            return False
     return True
 
 
 class GetAPIAnswerError(Exception):
-    pass
+    def __init__(self):
+        self.message = 'API не отвечает.'
 
-
-class CacheTokenError(Exception):
-    pass
+    def __str__(self):
+        return self.message
 
 
 class ParseStatusError(Exception):
-    pass
+    def __init__(self):
+        self.message = (
+            'Есть проблемы с извлекаемой информацией из статуса работы.'
+        )
+
+    def __str__(self):
+        return self.message
 
 
 class CheckResponseError(Exception):
-    pass
+    def __init__(self):
+        self.message = (
+            """При проверке ответа API
+            на корректность возникли проблемы."""
+        )
+
+    def __str__(self):
+        return self.message
 
 
 def main() -> None:
@@ -144,11 +158,10 @@ def main() -> None:
     """Основная логика работы бота."""
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
-
     last_message = None
     last_error = None
 
-    while True:
+    while check_tokens():
         try:
             response = get_api_answer(current_timestamp)
             homework = check_response(response)
@@ -156,13 +169,13 @@ def main() -> None:
             if homework is not None and message != last_message:
                 send_message(bot, message)
                 last_message = message
-                time.sleep(RETRY_TIME)
 
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             if message != last_error:
                 send_message(bot, message)
                 last_error = message
+        finally:
             time.sleep(RETRY_TIME)
 
 
