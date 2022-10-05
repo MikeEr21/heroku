@@ -33,6 +33,8 @@ logging.basicConfig(
         filename='main.log',
         filemode='w'
     )
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 def send_message(bot: Bot, message: str) -> None:
