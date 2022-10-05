@@ -9,7 +9,6 @@ import telegram
 from dotenv import load_dotenv
 from telegram import Bot
 
-from exceptions import CheckResponseError, GetAPIAnswerError, ParseStatusError
 
 load_dotenv()
 
