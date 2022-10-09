@@ -45,7 +45,7 @@ def send_message(bot: Bot, message: str) -> None:
         logging.info(f'Сообщение "{message}" готовится к отправке.')
         bot.send_message(TELEGRAM_CHAT_ID, message)
     except telegram.TelegramError as error:
-        logging.error(
+        raise TelegramError(
             f'Невозможно отправить сообщение. {error}'
         )
     else:
@@ -63,16 +63,20 @@ def get_api_answer(current_timestamp: int) -> dict:
             headers=HEADERS,
             params=params
         )
+    except Exception as error:
+        raise GetAPIAnswerError(
+            f'Что-то не так с ссылкой {ENDPOINT}. {error} '
+            f'где заголовок {HEADERS} '
+            f'с следующими параметрами {params}'
+
+        )
+    else:
         if homework_statuses.status_code != HTTPStatus.OK:
             raise GetAPIAnswerError(
                 f'Ошибка {homework_statuses.status_code} '
-                f'по адресу {ENDPOINT}, где заголовок {HEADERS}'
+                f'по адресу {ENDPOINT}, где заголовок {HEADERS} '
+                f'с следующими параметрами {params}'
             )
-    except AttributeError as error:
-        raise GetAPIAnswerError(
-            f'Что-то не так с ссылкой {ENDPOINT}. {error}'
-        )
-    else:
         return homework_statuses.json()
 
 
@@ -81,17 +85,15 @@ def check_response(response: dict) -> dict:
     logging.info('Проверяем ответ API на корректность.')
     if not isinstance(response, dict):
         raise TypeError(
-            f'Ответ от API имеет некорректный '
-            f'тип {isinstance(response, dict)}'
+            'Ответ от API не является словарём'
         )
     if 'homeworks' not in response:
         raise CheckResponseError('В ответе от API нет ключа "homeworks"')
     if not isinstance(response['homeworks'], list):
         raise CheckResponseError(
-            f'По ключу "homeworks" возвращается '
-            f'не список {isinstance(response["homeworks"], list)} '
+            'По ключу "homeworks" возвращается не список.'
         )
-    if response['homeworks'] is []:
+    if len(response['homeworks']) == 0:
         raise CheckResponseError(
             'В данный момент нет домашних заданий на проверке'
         )
@@ -104,17 +106,23 @@ def parse_status(homework: dict) -> str:
     """Извлекаем информацию о статусе домашней работы."""
     logging.info('Извлекаем информацию о статусе домашней работы.')
     if 'homework_name' not in homework:
-        raise KeyError('В списке нет домашних заданий')
+        raise KeyError(
+            'В полученном домашнем задании нет ключа "homework_name"'
+        )
     homework_name = homework['homework_name']
-    if homework['status'] not in HOMEWORK_STATUSES.keys():
-        raise ParseStatusError('Отсутствует статус ревью')
-    if homework_name not in homework['homework_name']:
+    if 'status' not in homework:
+        raise ParseStatusError('Отсутствует статус в домашней работе')
+    if homework['status'] not in HOMEWORK_STATUSES:
+        raise ParseStatusError(
+            'Статус не соответствует известным нам статусам'
+        )
+    if 'homework_name' not in homework:
         raise ParseStatusError('Отсутствует название работы')
     verdict = HOMEWORK_STATUSES.get(homework['status'])
     if verdict is None:
         raise ParseStatusError('Пустой verdict')
     return (
-        f'Изменился статус проверки работы '
+        'Изменился статус проверки работы '
         f'"{homework_name}". {verdict}'
     )
 
@@ -122,20 +130,17 @@ def parse_status(homework: dict) -> str:
 def check_tokens() -> bool:
     """Проверяем наличие переменных окружения."""
     logging.info('Проверяем наличие переменных окружения.')
-    if PRACTICUM_TOKEN is None:
-        logging.critical(
-            f'У объекта/-ов "{"PRACTICUM_TOKEN"}" нет переменной окружения.'
-        )
-    if TELEGRAM_TOKEN is None:
-        logging.critical(
-            f'У объекта/-ов "{"TELEGRAM_TOKEN"}" нет переменной окружения.'
-        )
-    if TELEGRAM_CHAT_ID is None:
-        logging.critical(
-            f'У объекта/-ов "{"TELEGRAM_CHAT_ID"}" нет переменной окружения.'
-        )
+    values = (
+        ('PRACTICUM_TOKEN', PRACTICUM_TOKEN),
+        ('TELEGRAM_TOKEN', TELEGRAM_TOKEN),
+        ('TELEGRAM_CHAT_ID', TELEGRAM_CHAT_ID)
+    )
+    for variable_name, variable_value in values:
+        if variable_value is None:
+            logging.critical(
+                f'У объекта "{variable_name}" нет переменной окружения.'
+            )
     return all((PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID))
-
 
 class GetAPIAnswerError(Exception):
     def __init__(self, error):
@@ -158,7 +163,7 @@ class ParseStatusError(Exception):
 class CheckResponseError(Exception):
     def __init__(self, error):
         self.message = (
-            f'При проверке ответа API '
+            'При проверке ответа API '
             f'на корректность возникли проблемы. {error}'
         )
 
@@ -169,6 +174,9 @@ class CheckResponseError(Exception):
 
 def main() -> None:
     """Запуск бота."""
+    if check_tokens() is False:
+        sys.exit('Потерялись переменные окружения')
+
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
     last_message = None
@@ -176,12 +184,9 @@ def main() -> None:
 
     while True:
         try:
-            if check_tokens() is False:
-                sys.exit('Потерялись переменные окружения')
-            else:
-                response = get_api_answer(current_timestamp)
-                homework = check_response(response)
-                message = parse_status(homework)
+            response = get_api_answer(current_timestamp)
+            homework = check_response(response)
+            message = parse_status(homework)
 
             if homework is not None and message != last_message:
                 send_message(bot, message)
